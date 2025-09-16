@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, isAdmin } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import AuthModal from '@/components/auth/AuthModal'
 import UserProfile from '@/components/auth/UserProfile'
+import Link from 'next/link'
 
 export default function Home() {
   const { user, loading: authLoading } = useAuth()
@@ -12,6 +13,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
+  const [isUserAdmin, setIsUserAdmin] = useState(false)
 
   useEffect(() => {
     const testConnection = async () => {
@@ -33,8 +35,25 @@ export default function Home() {
       }
     }
 
+    const checkAdminStatus = async () => {
+      if (user) {
+        try {
+          const adminStatus = await isAdmin()
+          setIsUserAdmin(adminStatus)
+        } catch (error) {
+          console.error('Error checking admin status:', error)
+          setIsUserAdmin(false)
+        }
+      } else {
+        setIsUserAdmin(false)
+      }
+    }
+
     testConnection()
-  }, [])
+    if (!authLoading) {
+      checkAdminStatus()
+    }
+  }, [user, authLoading])
 
   const handleAuthClick = (mode: 'login' | 'signup') => {
     setAuthMode(mode)
@@ -159,9 +178,22 @@ export default function Home() {
             <button className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
               View Documentation
             </button>
-            <button className="px-6 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50">
-              Admin Portal
-            </button>
+            {user && isUserAdmin && (
+              <Link
+                href="/admin"
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 inline-block"
+              >
+                Admin Portal
+              </Link>
+            )}
+            {user && !isUserAdmin && (
+              <Link
+                href="/admin-setup"
+                className="px-6 py-2 border border-orange-300 text-orange-700 rounded hover:bg-orange-50 inline-block"
+              >
+                Setup Admin Access
+              </Link>
+            )}
           </div>
         </div>
       </div>
