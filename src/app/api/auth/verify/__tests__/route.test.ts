@@ -1,0 +1,519 @@
+import { NextRequest } from 'next/server'
+import { GET, POST } from '../route'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
+
+// Mock dependencies
+jest.mock('@supabase/auth-helpers-nextjs')
+jest.mock('next/headers')
+
+const mockCreateRouteHandlerClient = createRouteHandlerClient as jest.MockedFunction<typeof createRouteHandlerClient>
+const mockCookies = cookies as jest.MockedFunction<typeof cookies>
+
+describe('/api/auth/verify', () => {
+  let mockSupabase: any
+  let mockRequest: NextRequest
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+
+    // Mock Supabase client
+    mockSupabase = {
+      auth: {
+        getUser: jest.fn()
+      },
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn()
+      }))
+    }
+
+    mockCreateRouteHandlerClient.mockReturnValue(mockSupabase)
+    mockCookies.mockReturnValue({} as any)
+
+    // Mock NextRequest
+    mockRequest = {
+      json: jest.fn(),
+      url: 'http://localhost:3000/api/auth/verify'
+    } as any
+  })
+
+  describe('GET /api/auth/verify', () => {
+    it('should return service health information', async () => {
+      const response = await GET()
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.service).toBe('MrBrooks Auth Service')
+      expect(data.status).toBe('operational')
+      expect(data.version).toBe('1.0.0')
+      expect(data.timestamp).toBeDefined()
+    })
+  })
+
+  describe('POST /api/auth/verify', () => {
+    beforeEach(() => {
+      mockRequest.json = jest.fn().mockResolvedValue({
+        application_id: 'app-123',
+        user_token: 'user-token-123',
+        required_tier_level: 1
+      })
+    })
+
+    it('should return 400 when application_id is missing', async () => {
+      mockRequest.json = jest.fn().mockResolvedValue({
+        user_token: 'user-token-123'
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(data.error).toBe('application_id is required')
+    })
+
+    it('should return 404 when application does not exist', async () => {
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: new Error('Not found')
+        })
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(404)
+      expect(data.error).toBe('Invalid or inactive application')
+      expect(data.authorized).toBe(false)
+    })
+
+    it('should return 404 when application is not active', async () => {
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: new Error('Not found')
+        })
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(404)
+      expect(data.error).toBe('Invalid or inactive application')
+      expect(data.authorized).toBe(false)
+    })
+
+    it('should return application info when no user token provided', async () => {
+      const mockApplication = {
+        id: 'app-123',
+        name: 'Test App',
+        status: 'active'
+      }
+
+      mockRequest.json = jest.fn().mockResolvedValue({
+        application_id: 'app-123'
+      })
+
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: mockApplication,
+          error: null
+        })
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.authorized).toBe(false)
+      expect(data.application).toEqual({
+        id: mockApplication.id,
+        name: mockApplication.name
+      })
+    })
+
+    it('should return 401 when user token is invalid', async () => {
+      const mockApplication = {
+        id: 'app-123',
+        name: 'Test App',
+        status: 'active'
+      }
+
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: mockApplication,
+          error: null
+        })
+      })
+
+      mockSupabase.auth.getUser.mockResolvedValue({
+        data: { user: null },
+        error: new Error('Invalid token')
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(401)
+      expect(data.error).toBe('Invalid user token')
+      expect(data.authorized).toBe(false)
+    })
+
+    it('should return 404 when user profile not found', async () => {
+      const mockApplication = {
+        id: 'app-123',
+        name: 'Test App',
+        status: 'active'
+      }
+
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com'
+      }
+
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockApplication,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: null,
+            error: new Error('Profile not found')
+          })
+        })
+
+      mockSupabase.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(404)
+      expect(data.error).toBe('User profile not found')
+      expect(data.authorized).toBe(false)
+    })
+
+    it('should return user info without membership when no membership exists', async () => {
+      const mockApplication = {
+        id: 'app-123',
+        name: 'Test App',
+        status: 'active'
+      }
+
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com'
+      }
+
+      const mockProfile = {
+        id: 'user-123',
+        full_name: 'Test User',
+        avatar_url: null
+      }
+
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockApplication,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockProfile,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: null,
+            error: new Error('No membership found')
+          })
+        })
+
+      mockSupabase.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.authorized).toBe(false)
+      expect(data.user.id).toBe(mockUser.id)
+      expect(data.user.email).toBe(mockUser.email)
+      expect(data.membership).toBeNull()
+    })
+
+    it('should return authorized user with membership', async () => {
+      const mockApplication = {
+        id: 'app-123',
+        name: 'Test App',
+        status: 'active'
+      }
+
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com'
+      }
+
+      const mockProfile = {
+        id: 'user-123',
+        full_name: 'Test User',
+        avatar_url: null
+      }
+
+      const mockMembership = {
+        id: 'membership-123',
+        status: 'active',
+        started_at: '2023-01-01',
+        ends_at: '2024-01-01',
+        membership_tier: {
+          id: 'tier-123',
+          name: 'Premium',
+          tier_level: 2,
+          features: ['feature1', 'feature2']
+        }
+      }
+
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockApplication,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockProfile,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockMembership,
+            error: null
+          })
+        })
+
+      mockSupabase.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.authorized).toBe(true)
+      expect(data.user.id).toBe(mockUser.id)
+      expect(data.membership.id).toBe(mockMembership.id)
+      expect(data.membership.tier.name).toBe('Premium')
+    })
+
+    it('should check required tier level', async () => {
+      const mockApplication = {
+        id: 'app-123',
+        name: 'Test App',
+        status: 'active'
+      }
+
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com'
+      }
+
+      const mockProfile = {
+        id: 'user-123',
+        full_name: 'Test User',
+        avatar_url: null
+      }
+
+      const mockMembership = {
+        id: 'membership-123',
+        status: 'active',
+        started_at: '2023-01-01',
+        ends_at: '2024-01-01',
+        membership_tier: {
+          id: 'tier-123',
+          name: 'Basic',
+          tier_level: 1,
+          features: ['feature1']
+        }
+      }
+
+      mockRequest.json = jest.fn().mockResolvedValue({
+        application_id: 'app-123',
+        user_token: 'user-token-123',
+        required_tier_level: 2 // Higher than user's tier level
+      })
+
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockApplication,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockProfile,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockMembership,
+            error: null
+          })
+        })
+
+      mockSupabase.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.authorized).toBe(false) // Should be false due to insufficient tier level
+      expect(data.membership.tier.tier_level).toBe(1)
+    })
+
+    it('should handle unexpected errors', async () => {
+      mockSupabase.from.mockImplementation(() => {
+        throw new Error('Unexpected error')
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(data.error).toBe('Internal server error')
+      expect(data.authorized).toBe(false)
+    })
+
+    it('should handle membership tier with missing tier_level', async () => {
+      const mockApplication = {
+        id: 'app-123',
+        name: 'Test App',
+        status: 'active'
+      }
+
+      const mockUser = {
+        id: 'user-123',
+        email: 'test@example.com'
+      }
+
+      const mockProfile = {
+        id: 'user-123',
+        full_name: 'Test User',
+        avatar_url: null
+      }
+
+      const mockMembership = {
+        id: 'membership-123',
+        status: 'active',
+        started_at: '2023-01-01',
+        ends_at: '2024-01-01',
+        membership_tier: {
+          id: 'tier-123',
+          name: 'Basic',
+          // tier_level is missing
+          features: ['feature1']
+        }
+      }
+
+      mockRequest.json = jest.fn().mockResolvedValue({
+        application_id: 'app-123',
+        user_token: 'user-token-123',
+        required_tier_level: 1
+      })
+
+      const mockFrom = mockSupabase.from as jest.Mock
+      mockFrom
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockApplication,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockProfile,
+            error: null
+          })
+        })
+        .mockReturnValueOnce({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockMembership,
+            error: null
+          })
+        })
+
+      mockSupabase.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null
+      })
+
+      const response = await POST(mockRequest)
+      const data = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(data.authorized).toBe(false) // Should be false due to missing tier_level (defaults to 0)
+    })
+  })
+})
