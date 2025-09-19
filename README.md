@@ -10,9 +10,25 @@ MrBrooksAuthService leverages Supabase for robust authentication and database ma
 
 - **Centralized Authentication**: Reduce redundancy across applications
 - **Multi-tenant Architecture**: Handle multiple applications securely
+- **Enhanced Redirect Validation**: Detailed error logging with configuration instructions
+- **Comprehensive Membership Data**: All auth responses include membership information with pricing
 - **Subscription Management**: Flexible tiers and bundling options
 - **Admin Tools**: Easy configuration and oversight
 - **AI-Friendly Development**: Modular, parallel-development ready
+
+## Recent Enhancements
+
+### Enhanced Authentication Features (January 2025)
+The Auth Service has been significantly enhanced with improved redirect validation and comprehensive membership data in all authentication responses:
+
+- **Smart Redirect Validation**: When invalid redirect URLs are used, the system now logs detailed error information to the [`audit_logs`](src/types/database.ts:225) table with specific SQL commands to fix the configuration
+- **Rich Membership Responses**: All authentication endpoints ([`/api/auth/initiate`](src/app/api/auth/initiate/route.ts), [`/api/auth/complete`](src/app/api/auth/complete/route.ts), [`/api/auth/verify`](src/app/api/auth/verify/route.ts)) now return comprehensive user membership data including:
+  - Application details and membership tiers
+  - Expiration dates and renewal information
+  - Pricing data (monthly/yearly costs)
+  - Membership status and features
+
+📖 **Documentation**: See [Enhanced Auth Service Features](docs/enhanced-auth-service-features.md) for detailed implementation guide and [Architecture Decision Record](docs/decisions/2025-01-19-enhanced-auth-service-with-membership-data.md) for technical decisions.
 
 ## Problem Statement
 

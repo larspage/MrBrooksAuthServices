@@ -83,6 +83,12 @@ export async function POST(request: NextRequest) {
       .eq('status', 'active')
       .single()
 
+    // Get all user memberships with pricing information
+    const { data: allMemberships, error: allMembershipsError } = await supabase
+      .rpc('get_user_memberships_with_pricing', {
+        user_uuid: user.id
+      })
+
     // Check if user has required tier level
     let hasRequiredTier = true
     if (required_tier_level && membership?.membership_tier) {
@@ -116,7 +122,8 @@ export async function POST(request: NextRequest) {
         } : null,
         started_at: membership.started_at,
         ends_at: membership.ends_at
-      } : null
+      } : null,
+      userMemberships: allMemberships || []
     }
 
     return NextResponse.json(response)

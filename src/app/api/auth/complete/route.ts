@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
-    // Call the database function to complete auth session
-    const { data, error } = await supabase.rpc('complete_auth_session', {
+    // Call the enhanced database function to complete auth session
+    const { data, error } = await supabase.rpc('complete_auth_session_enhanced', {
       session_token: sessionToken,
       authenticated_user_id: userId
     })
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // The function returns application_id, redirect_url, and state
+    // The enhanced function returns application_id, redirect_url, state, and user_memberships
     const sessionData = data[0]
     if (!sessionData) {
       console.error('❌ No session data found for token:', sessionToken)
@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
     console.log('🔗 redirectUrl length:', sessionData.redirect_url ? sessionData.redirect_url.length : 'undefined')
     console.log('🎯 State:', sessionData.state ? JSON.stringify(sessionData.state) : 'not provided')
     console.log('🎯 State length:', sessionData.state ? JSON.stringify(sessionData.state).length : 0)
+    console.log('👥 User memberships count:', sessionData.user_memberships ? sessionData.user_memberships.length : 0)
 
     // Check for potential URL length issues
     if (sessionData.redirect_url && sessionData.redirect_url.length > 2048) {
@@ -67,7 +68,8 @@ export async function POST(request: NextRequest) {
       success: true,
       redirectUrl: sessionData.redirect_url,
       state: sessionData.state,
-      applicationId: sessionData.application_id
+      applicationId: sessionData.application_id,
+      userMemberships: sessionData.user_memberships || []
     })
 
   } catch (error) {

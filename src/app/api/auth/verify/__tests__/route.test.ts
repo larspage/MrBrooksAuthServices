@@ -26,7 +26,8 @@ describe('/api/auth/verify', () => {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         single: jest.fn()
-      }))
+      })),
+      rpc: jest.fn()
     }
 
     mockCreateRouteHandlerClient.mockReturnValue(mockSupabase)
@@ -267,6 +268,12 @@ describe('/api/auth/verify', () => {
         error: null
       })
 
+      // Mock empty memberships
+      mockSupabase.rpc.mockResolvedValue({
+        data: [],
+        error: null
+      })
+
       const response = await POST(mockRequest)
       const data = await response.json()
 
@@ -275,6 +282,7 @@ describe('/api/auth/verify', () => {
       expect(data.user.id).toBe(mockUser.id)
       expect(data.user.email).toBe(mockUser.email)
       expect(data.membership).toBeNull()
+      expect(data.userMemberships).toEqual([])
     })
 
     it('should return authorized user with membership', async () => {
@@ -340,6 +348,30 @@ describe('/api/auth/verify', () => {
         error: null
       })
 
+      // Mock the get_user_memberships_with_pricing function
+      mockSupabase.rpc.mockResolvedValue({
+        data: [
+          {
+            application_id: 'app-123',
+            application_name: 'Test App',
+            application_slug: 'test-app',
+            membership_id: 'membership-123',
+            membership_status: 'active',
+            tier_id: 'tier-123',
+            tier_name: 'Premium',
+            tier_level: 2,
+            tier_features: ['feature1', 'feature2'],
+            started_at: '2023-01-01',
+            ends_at: '2024-01-01',
+            renewal_date: '2023-12-01',
+            monthly_price_cents: 999,
+            yearly_price_cents: 9999,
+            currency: 'usd'
+          }
+        ],
+        error: null
+      })
+
       const response = await POST(mockRequest)
       const data = await response.json()
 
@@ -348,6 +380,14 @@ describe('/api/auth/verify', () => {
       expect(data.user.id).toBe(mockUser.id)
       expect(data.membership.id).toBe(mockMembership.id)
       expect(data.membership.tier.name).toBe('Premium')
+      expect(data.userMemberships).toHaveLength(1)
+      expect(data.userMemberships[0].application_name).toBe('Test App')
+      expect(data.userMemberships[0].monthly_price_cents).toBe(999)
+
+      // Verify the RPC call was made
+      expect(mockSupabase.rpc).toHaveBeenCalledWith('get_user_memberships_with_pricing', {
+        user_uuid: 'user-123'
+      })
     })
 
     it('should check required tier level', async () => {

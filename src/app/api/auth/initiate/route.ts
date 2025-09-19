@@ -48,17 +48,41 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
-    // Call the database function to create auth session
-    const { data, error } = await supabase.rpc('create_auth_session', {
+    // Extract user agent and IP for enhanced error logging
+    const userAgent = request.headers.get('user-agent') || undefined
+    const forwardedFor = request.headers.get('x-forwarded-for')
+    const realIp = request.headers.get('x-real-ip')
+    const ipAddress = forwardedFor?.split(',')[0] || realIp || undefined
+
+    // Call the enhanced database function to create auth session
+    const { data, error } = await supabase.rpc('create_auth_session_enhanced', {
       app_id: applicationId,
       redirect_url: redirectUrl,
       user_email: userEmail || null,
       session_state: state || null,
-      expires_in_minutes: expiresInMinutes || 30
+      expires_in_minutes: expiresInMinutes || 30,
+      user_agent: userAgent,
+      ip_address: ipAddress
     })
 
     if (error) {
       console.error('Error creating auth session:', error)
+      
+      // Check if this is a redirect validation error
+      if (error.message?.includes('Invalid redirect URL')) {
+        console.error('❌ REDIRECT VALIDATION FAILED')
+        console.error('📋 Check audit_logs table for detailed instructions on configuring allowed redirect URLs')
+        return NextResponse.json(
+          {
+            error: 'Invalid redirect URL for application',
+            details: 'The provided redirect URL is not allowed for this application. Check the server logs or audit_logs table for instructions on how to configure allowed redirect URLs.',
+            applicationId: applicationId,
+            redirectUrl: redirectUrl
+          },
+          { status: 400 }
+        )
+      }
+      
       return NextResponse.json(
         { error: 'Failed to create authentication session' },
         { status: 500 }
@@ -92,6 +116,20 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error in auth initiate:', error)
+    
+    // Check if this is a redirect validation error
+    if (error instanceof Error && error.message?.includes('Invalid redirect URL')) {
+      console.error('❌ REDIRECT VALIDATION FAILED')
+      console.error('📋 Check audit_logs table for detailed instructions on configuring allowed redirect URLs')
+      return NextResponse.json(
+        {
+          error: 'Invalid redirect URL for application',
+          details: 'The provided redirect URL is not allowed for this application. Check the server logs or audit_logs table for instructions on how to configure allowed redirect URLs.'
+        },
+        { status: 400 }
+      )
+    }
+    
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
