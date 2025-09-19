@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase, isAdmin } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import AuthModal from '@/components/auth/AuthModal'
@@ -14,8 +15,95 @@ export default function Home() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
   const [isUserAdmin, setIsUserAdmin] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
+    // Handle authentication tokens in URL (for email confirmation)
+    const handleAuthCallback = async () => {
+      // Check URL search parameters first
+      let urlParams = new URLSearchParams(window.location.search)
+      let accessToken = urlParams.get('access_token')
+      let refreshToken = urlParams.get('refresh_token')
+      let tokenType = urlParams.get('token_type')
+      let type = urlParams.get('type')
+
+      // If not found in search params, check URL fragment
+      if (!accessToken || !refreshToken) {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1))
+        accessToken = hashParams.get('access_token') || accessToken
+        refreshToken = hashParams.get('refresh_token') || refreshToken
+        tokenType = hashParams.get('token_type') || tokenType
+        type = hashParams.get('type') || type
+        console.log('🔄 Checking URL fragment for tokens:', { accessToken: !!accessToken, refreshToken: !!refreshToken })
+      }
+
+      if (accessToken && refreshToken && type === 'signup') {
+        console.log('🏠 Processing email confirmation on home page...')
+        console.log('🏠 Token details:', {
+          accessTokenLength: accessToken.length,
+          refreshTokenLength: refreshToken.length,
+          tokenType,
+          type
+        })
+
+        try {
+          // Set the session using the tokens from the URL
+          console.log('🏠 Setting session with tokens...')
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          })
+
+          console.log('🏠 Session set result:', {
+            hasData: !!data,
+            hasSession: !!data?.session,
+            hasUser: !!data?.user,
+            userEmail: data?.user?.email,
+            error: error ? {
+              message: error.message,
+              status: error.status,
+              name: error.name
+            } : null
+          })
+
+          if (error) {
+            console.error('🏠 Error setting session from URL tokens:', error)
+            router.push('/auth/auth-code-error')
+            return
+          }
+
+          if (data.session && data.user) {
+            console.log('🏠 Email confirmation successful for:', data.user.email)
+            
+            // Create/update user profile
+            const { error: profileError } = await supabase
+              .from('user_profiles')
+              .upsert({
+                id: data.user.id,
+                email: data.user.email || null,
+                full_name: data.user.user_metadata?.full_name || null,
+                updated_at: new Date().toISOString()
+              }, {
+                onConflict: 'id'
+              })
+
+            if (profileError) {
+              console.error('Error creating/updating user profile:', profileError)
+            }
+
+            // Clean up the URL by removing the auth parameters
+            const cleanUrl = window.location.origin + window.location.pathname
+            window.history.replaceState({}, document.title, cleanUrl)
+            console.log('🧹 Cleaned up URL after email confirmation')
+          }
+        } catch (error) {
+          console.error('Error processing email confirmation:', error)
+          router.push('/auth/auth-code-error')
+        }
+      }
+    }
+
+    handleAuthCallback()
     const testConnection = async () => {
       try {
         const { data, error } = await supabase

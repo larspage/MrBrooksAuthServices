@@ -415,6 +415,57 @@ This manual testing guide covers:
 - ✅ Admin functionality
 - ✅ Application management
 
+## Common Issues and Solutions
+
+### Issue: 403 Forbidden Error on User Profiles
+**Symptoms**: After signing up and confirming email, user gets 403 error when trying to access profile data.
+
+**Solution**: The database needs a trigger to automatically create user profiles. Apply this SQL in Supabase:
+
+```sql
+-- Function to handle new user signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.user_profiles (id, email, full_name, metadata)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    NEW.raw_user_meta_data->>'full_name',
+    NEW.raw_user_meta_data
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to automatically create user profile on signup
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+```
+
+### Issue: "is_admin" Function Not Found
+**Symptoms**: Database errors mentioning missing RPC functions.
+
+**Solution**: Apply the database migrations:
+1. Run `npm run db:migrate`
+2. Or manually apply the SQL files in `supabase/migrations/` via Supabase dashboard
+
+### Issue: Admin Features Not Accessible
+**Symptoms**: User can't access admin portal even after login.
+
+**Solution**: Set user as admin in database:
+```sql
+UPDATE auth.users
+SET raw_user_meta_data = jsonb_set(
+  COALESCE(raw_user_meta_data, '{}'),
+  '{role}',
+  '"admin"'
+)
+WHERE email = 'your-admin-email@example.com';
+```
+
 ## Notes for Testers
 
 1. **Test Data**: Always use test data, never production data
@@ -424,6 +475,7 @@ This manual testing guide covers:
 5. **User Experience**: Consider the overall user experience, not just functionality
 6. **Security**: Be vigilant about potential security issues
 7. **Performance**: Note any performance issues or slow responses
+8. **Database Setup**: Ensure database schema is properly applied before testing
 
 ## Integration with Automated Testing
 

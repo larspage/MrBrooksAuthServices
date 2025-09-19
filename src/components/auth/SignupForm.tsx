@@ -6,9 +6,10 @@ import { useAuth } from '@/contexts/AuthContext'
 interface SignupFormProps {
   onToggleMode?: () => void
   onSuccess?: () => void
+  sessionToken?: string
 }
 
-export default function SignupForm({ onToggleMode, onSuccess }: SignupFormProps) {
+export default function SignupForm({ onToggleMode, onSuccess, sessionToken }: SignupFormProps) {
   const { signUp } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -37,7 +38,7 @@ export default function SignupForm({ onToggleMode, onSuccess }: SignupFormProps)
       return
     }
 
-    const { error } = await signUp(email, password, fullName)
+    const { error } = await signUp(email, password, fullName, sessionToken)
 
     if (error) {
       setError(error.message)

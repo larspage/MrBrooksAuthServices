@@ -70,7 +70,7 @@ const customJestConfig = {
   
   // Transform ignore patterns - allow transformation of ES modules
   transformIgnorePatterns: [
-    'node_modules/(?!(jose|@supabase|@auth0)/)',
+    'node_modules/(?!(jose|@supabase|@auth0|uuid|@supabase/auth-helpers-nextjs|@supabase/auth-helpers-shared)/)',
   ],
   
   // Clear mocks between tests

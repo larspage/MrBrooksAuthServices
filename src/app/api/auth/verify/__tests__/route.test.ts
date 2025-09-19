@@ -515,5 +515,437 @@ describe('/api/auth/verify', () => {
       expect(response.status).toBe(200)
       expect(data.authorized).toBe(false) // Should be false due to missing tier_level (defaults to 0)
     })
+
+    // Additional Edge Cases and Negative Testing
+    describe('Additional Edge Cases', () => {
+      it('should handle malformed JSON in request body', async () => {
+        mockRequest.json = jest.fn().mockRejectedValue(new Error('Invalid JSON'))
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(500)
+        expect(data.error).toBe('Internal server error')
+        expect(data.authorized).toBe(false)
+      })
+
+      it('should handle empty application_id string', async () => {
+        mockRequest.json = jest.fn().mockResolvedValue({
+          application_id: '',
+          user_token: 'user-token-123'
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('application_id is required')
+      })
+
+      it('should handle null application_id', async () => {
+        mockRequest.json = jest.fn().mockResolvedValue({
+          application_id: null,
+          user_token: 'user-token-123'
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('application_id is required')
+      })
+
+      it('should handle very long application_id', async () => {
+        const longAppId = 'a'.repeat(1000)
+        mockRequest.json = jest.fn().mockResolvedValue({
+          application_id: longAppId,
+          user_token: 'user-token-123'
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: null,
+            error: new Error('Not found')
+          })
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(404)
+        expect(data.error).toBe('Invalid or inactive application')
+      })
+
+      it('should handle empty user_token string', async () => {
+        const mockApplication = {
+          id: 'app-123',
+          name: 'Test App',
+          status: 'active'
+        }
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          application_id: 'app-123',
+          user_token: ''
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockApplication,
+            error: null
+          })
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.authorized).toBe(false)
+        expect(data.application).toEqual({
+          id: mockApplication.id,
+          name: mockApplication.name
+        })
+      })
+
+      it('should handle negative required_tier_level', async () => {
+        const mockApplication = {
+          id: 'app-123',
+          name: 'Test App',
+          status: 'active'
+        }
+
+        const mockUser = {
+          id: 'user-123',
+          email: 'test@example.com'
+        }
+
+        const mockProfile = {
+          id: 'user-123',
+          full_name: 'Test User',
+          avatar_url: null
+        }
+
+        const mockMembership = {
+          id: 'membership-123',
+          status: 'active',
+          started_at: '2023-01-01',
+          ends_at: '2024-01-01',
+          membership_tier: {
+            id: 'tier-123',
+            name: 'Basic',
+            tier_level: 1,
+            features: ['feature1']
+          }
+        }
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          application_id: 'app-123',
+          user_token: 'user-token-123',
+          required_tier_level: -1
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockApplication,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockProfile,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockMembership,
+              error: null
+            })
+          })
+
+        mockSupabase.auth.getUser.mockResolvedValue({
+          data: { user: mockUser },
+          error: null
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.authorized).toBe(true) // Should be true since user tier (1) >= required (-1)
+      })
+
+      it('should handle extremely high required_tier_level', async () => {
+        const mockApplication = {
+          id: 'app-123',
+          name: 'Test App',
+          status: 'active'
+        }
+
+        const mockUser = {
+          id: 'user-123',
+          email: 'test@example.com'
+        }
+
+        const mockProfile = {
+          id: 'user-123',
+          full_name: 'Test User',
+          avatar_url: null
+        }
+
+        const mockMembership = {
+          id: 'membership-123',
+          status: 'active',
+          started_at: '2023-01-01',
+          ends_at: '2024-01-01',
+          membership_tier: {
+            id: 'tier-123',
+            name: 'Premium',
+            tier_level: 5,
+            features: ['feature1', 'feature2']
+          }
+        }
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          application_id: 'app-123',
+          user_token: 'user-token-123',
+          required_tier_level: Number.MAX_SAFE_INTEGER
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockApplication,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockProfile,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockMembership,
+              error: null
+            })
+          })
+
+        mockSupabase.auth.getUser.mockResolvedValue({
+          data: { user: mockUser },
+          error: null
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.authorized).toBe(false) // Should be false since user tier (5) < required (MAX_SAFE_INTEGER)
+      })
+
+      it('should handle database connection timeout', async () => {
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockRejectedValue(new Error('Connection timeout'))
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(500)
+        expect(data.error).toBe('Internal server error')
+        expect(data.authorized).toBe(false)
+      })
+
+      it('should handle user with null email', async () => {
+        const mockApplication = {
+          id: 'app-123',
+          name: 'Test App',
+          status: 'active'
+        }
+
+        const mockUser = {
+          id: 'user-123',
+          email: null // Null email
+        }
+
+        const mockProfile = {
+          id: 'user-123',
+          full_name: 'Test User',
+          avatar_url: null
+        }
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockApplication,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockProfile,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: null,
+              error: new Error('No membership found')
+            })
+          })
+
+        mockSupabase.auth.getUser.mockResolvedValue({
+          data: { user: mockUser },
+          error: null
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.user.email).toBeNull()
+        expect(data.authorized).toBe(false)
+      })
+
+      it('should handle membership with null tier', async () => {
+        const mockApplication = {
+          id: 'app-123',
+          name: 'Test App',
+          status: 'active'
+        }
+
+        const mockUser = {
+          id: 'user-123',
+          email: 'test@example.com'
+        }
+
+        const mockProfile = {
+          id: 'user-123',
+          full_name: 'Test User',
+          avatar_url: null
+        }
+
+        const mockMembership = {
+          id: 'membership-123',
+          status: 'active',
+          started_at: '2023-01-01',
+          ends_at: '2024-01-01',
+          membership_tier: null // Null tier
+        }
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          application_id: 'app-123',
+          user_token: 'user-token-123',
+          required_tier_level: 1
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockApplication,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockProfile,
+              error: null
+            })
+          })
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockMembership,
+              error: null
+            })
+          })
+
+        mockSupabase.auth.getUser.mockResolvedValue({
+          data: { user: mockUser },
+          error: null
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(200)
+        expect(data.authorized).toBe(true) // Should be true since membership exists and no tier requirement
+        expect(data.membership.tier).toBeNull()
+      })
+
+      it('should handle concurrent requests', async () => {
+        const mockApplication = {
+          id: 'app-123',
+          name: 'Test App',
+          status: 'active'
+        }
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: mockApplication,
+            error: null
+          })
+        })
+
+        const requests = Array.from({ length: 5 }, () => {
+          const req = {
+            json: jest.fn().mockResolvedValue({
+              application_id: 'app-123'
+            }),
+            url: 'http://localhost:3000/api/auth/verify'
+          } as any
+          return POST(req)
+        })
+
+        const responses = await Promise.all(requests)
+
+        responses.forEach(async (response) => {
+          const data = await response.json()
+          expect(response.status).toBe(200)
+          expect(data.authorized).toBe(false)
+          expect(data.application.id).toBe('app-123')
+        })
+      })
+    })
   })
 })

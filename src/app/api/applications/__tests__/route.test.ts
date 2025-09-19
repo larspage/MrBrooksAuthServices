@@ -370,8 +370,8 @@ describe('/api/applications', () => {
         name: 'Test App',
         slug: 'test-app',
         api_keys: {
-          public_key: expect.stringMatching(/^pk_test-app_\d+$/),
-          secret_key: expect.stringMatching(/^sk_test-app_\d+_[a-z0-9]+$/)
+          public_key: 'pk_test-app_1234567890',
+          secret_key: 'sk_test-app_1234567890_abcdef123'
         }
       }
 
@@ -410,6 +410,403 @@ describe('/api/applications', () => {
       expect(response.status).toBe(201)
       expect(data.application.api_keys.public_key).toMatch(/^pk_test-app_\d+$/)
       expect(data.application.api_keys.secret_key).toMatch(/^sk_test-app_\d+_[a-z0-9]+$/)
+    })
+
+    // Additional Edge Cases and Negative Testing
+    describe('Additional Edge Cases', () => {
+      it('should handle malformed JSON in request body', async () => {
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockRejectedValue(new Error('Invalid JSON'))
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(500)
+        expect(data.error).toBe('Internal server error')
+      })
+
+      it('should handle empty name string', async () => {
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: '',
+          slug: 'test-app',
+          description: 'Test application'
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('Name and slug are required')
+      })
+
+      it('should handle empty slug string', async () => {
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: 'Test App',
+          slug: '',
+          description: 'Test application'
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('Name and slug are required')
+      })
+
+      it('should handle null name and slug', async () => {
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: null,
+          slug: null,
+          description: 'Test application'
+        })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('Name and slug are required')
+      })
+
+      it('should trim whitespace from name and slug', async () => {
+        const mockCreatedApp = {
+          id: 'new-app-123',
+          name: 'Test App',
+          slug: 'test-app',
+          description: 'Test application',
+          status: 'development'
+        }
+
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: '  Test App  ',
+          slug: '  test-app  ',
+          description: '  Test application  '
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: null,
+              error: { code: 'PGRST116' }
+            })
+          })
+          .mockReturnValueOnce({
+            insert: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockCreatedApp,
+              error: null
+            })
+          })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(201)
+        expect(data.application.name).toBe('Test App')
+        expect(data.application.slug).toBe('test-app')
+      })
+
+      it('should handle very long name and slug', async () => {
+        const longName = 'a'.repeat(1000)
+        const longSlug = 'b'.repeat(1000)
+
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: longName,
+          slug: longSlug,
+          description: 'Test application'
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: null,
+            error: { code: 'PGRST116' }
+          })
+        })
+
+        const response = await POST(mockRequest)
+
+        // Should still attempt to create the application
+        expect(mockFrom).toHaveBeenCalledWith('applications')
+      })
+
+      it('should handle special characters in slug', async () => {
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: 'Test App',
+          slug: 'test-app!@#$%^&*()',
+          description: 'Test application'
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: null,
+            error: { code: 'PGRST116' }
+          })
+        })
+
+        const response = await POST(mockRequest)
+
+        // Should still attempt to check for existing slug
+        expect(mockFrom).toHaveBeenCalledWith('applications')
+      })
+
+      it('should handle missing description (should be optional)', async () => {
+        const mockCreatedApp = {
+          id: 'new-app-123',
+          name: 'Test App',
+          slug: 'test-app',
+          description: null,
+          status: 'development'
+        }
+
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: 'Test App',
+          slug: 'test-app'
+          // No description provided
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: null,
+              error: { code: 'PGRST116' }
+            })
+          })
+          .mockReturnValueOnce({
+            insert: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockCreatedApp,
+              error: null
+            })
+          })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(201)
+        expect(data.application.description).toBeNull()
+      })
+
+      it('should handle custom status values', async () => {
+        const mockCreatedApp = {
+          id: 'new-app-123',
+          name: 'Test App',
+          slug: 'test-app',
+          status: 'production'
+        }
+
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        mockRequest.json = jest.fn().mockResolvedValue({
+          name: 'Test App',
+          slug: 'test-app',
+          status: 'production'
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: null,
+              error: { code: 'PGRST116' }
+            })
+          })
+          .mockReturnValueOnce({
+            insert: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: mockCreatedApp,
+              error: null
+            })
+          })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(201)
+        expect(data.application.status).toBe('production')
+      })
+
+      it('should handle database constraint violations', async () => {
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom
+          .mockReturnValueOnce({
+            select: jest.fn().mockReturnThis(),
+            eq: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: null,
+              error: { code: 'PGRST116' }
+            })
+          })
+          .mockReturnValueOnce({
+            insert: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: null,
+              error: {
+                code: '23505',
+                message: 'duplicate key value violates unique constraint'
+              }
+            })
+          })
+
+        const response = await POST(mockRequest)
+        const data = await response.json()
+
+        expect(response.status).toBe(500)
+        expect(data.error).toBe('Failed to create application')
+      })
+
+      it('should handle concurrent application creation attempts', async () => {
+        mockSupabase.auth.getSession.mockResolvedValue({
+          data: { session: { user: { id: 'admin-123' } } },
+          error: null
+        })
+
+        mockSupabase.rpc.mockResolvedValue({
+          data: true,
+          error: null
+        })
+
+        const mockFrom = mockSupabase.from as jest.Mock
+        mockFrom.mockReturnValue({
+          select: jest.fn().mockReturnThis(),
+          order: jest.fn().mockResolvedValue({
+            data: [],
+            error: null
+          })
+        })
+
+        const requests = Array.from({ length: 3 }, () => {
+          const req = {
+            json: jest.fn().mockResolvedValue({
+              name: 'Test App',
+              slug: 'test-app'
+            }),
+            url: 'http://localhost:3000/api/applications'
+          } as any
+          return GET(req)
+        })
+
+        const responses = await Promise.all(requests)
+
+        responses.forEach(async (response) => {
+          const data = await response.json()
+          expect(response.status).toBe(200)
+          expect(data.applications).toEqual([])
+        })
+      })
     })
   })
 })

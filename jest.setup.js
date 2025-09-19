@@ -50,35 +50,39 @@ jest.mock('next/navigation', () => ({
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key'
 
-// Mock window.matchMedia for responsive design tests
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: jest.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: jest.fn(), // deprecated
-    removeListener: jest.fn(), // deprecated
-    addEventListener: jest.fn(),
-    removeEventListener: jest.fn(),
-    dispatchEvent: jest.fn(),
-  })),
-})
-
-// Mock IntersectionObserver
-global.IntersectionObserver = class IntersectionObserver {
-  constructor() {}
-  disconnect() {}
-  observe() {}
-  unobserve() {}
+// Mock window.matchMedia for responsive design tests (only in jsdom environment)
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation(query => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: jest.fn(), // deprecated
+      removeListener: jest.fn(), // deprecated
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  })
 }
 
-// Mock ResizeObserver
-global.ResizeObserver = class ResizeObserver {
-  constructor() {}
-  disconnect() {}
-  observe() {}
-  unobserve() {}
+// Mock IntersectionObserver (only in jsdom environment)
+if (typeof window !== 'undefined') {
+  global.IntersectionObserver = class IntersectionObserver {
+    constructor() {}
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  }
+
+  // Mock ResizeObserver
+  global.ResizeObserver = class ResizeObserver {
+    constructor() {}
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  }
 }
 
 // Mock fetch for API testing
@@ -87,7 +91,12 @@ global.fetch = jest.fn()
 // Mock Web APIs for Next.js API routes
 global.Request = class Request {
   constructor(input, init) {
-    this.url = typeof input === 'string' ? input : input.url
+    Object.defineProperty(this, 'url', {
+      value: typeof input === 'string' ? input : input.url,
+      writable: false,
+      enumerable: true,
+      configurable: false
+    })
     this.method = init?.method || 'GET'
     this.headers = new Headers(init?.headers)
     this.body = init?.body
@@ -104,6 +113,15 @@ global.Response = class Response {
     this.status = init?.status || 200
     this.statusText = init?.statusText || 'OK'
     this.headers = new Headers(init?.headers)
+    this.headers.getSetCookie = () => {
+      const cookies = []
+      this.headers.forEach((value, key) => {
+        if (key.toLowerCase() === 'set-cookie') {
+          cookies.push(value)
+        }
+      })
+      return cookies
+    }
   }
   
   async json() {
@@ -147,8 +165,37 @@ global.Headers = class Headers {
     return this.map.has(key.toLowerCase())
   }
   
+  delete(key) {
+    return this.map.delete(key.toLowerCase())
+  }
+  
+  append(key, value) {
+    const existing = this.get(key)
+    if (existing) {
+      this.set(key, existing + ', ' + value)
+    } else {
+      this.set(key, value)
+    }
+  }
+  
   forEach(callback) {
     this.map.forEach(callback)
+  }
+  
+  entries() {
+    return this.map.entries()
+  }
+  
+  keys() {
+    return this.map.keys()
+  }
+  
+  values() {
+    return this.map.values()
+  }
+  
+  [Symbol.iterator]() {
+    return this.map.entries()
   }
 }
 

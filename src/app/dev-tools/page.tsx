@@ -1,55 +1,65 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function DevToolsPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const { signUp: authSignUp, signIn: authSignIn } = useAuth()
+
+  useEffect(() => {
+    // Check current auth state and listen for changes
+    const checkAuthState = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      console.log('🔐 Dev-tools initial session:', session?.user?.email || 'No user')
+      setCurrentUser(session?.user || null)
+    }
+
+    checkAuthState()
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔐 Dev-tools auth state change:', event, session?.user?.email || 'No user')
+      setCurrentUser(session?.user || null)
+      
+      // If user just signed in, reset loading state and show success
+      if (event === 'SIGNED_IN' && session?.user) {
+        console.log('🔐 User signed in, resetting loading state')
+        setLoading(false)
+        setMessage(`✅ Login successful! User: ${session.user.email}\n🆔 User ID: ${session.user.id}`)
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   const createTestUser = async () => {
     setLoading(true)
     setMessage('')
 
     try {
-      // Create user using regular signup (will require email confirmation)
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: 'Test User'
-          }
-        }
-      })
+      console.log('🔧 Dev-tools: Creating user with AuthContext signUp')
+      // Use AuthContext signUp which sets proper redirect URL
+      const { error } = await authSignUp(email, password, 'Test User')
 
       if (error) {
+        console.error('🔧 Dev-tools: Signup error:', error)
         setMessage(`Error: ${error.message}`)
       } else {
+        console.log('🔧 Dev-tools: Signup successful')
         setMessage(`✅ Test user created successfully! Email: ${email}`)
         setMessage(prev => prev + `\n📧 IMPORTANT: Check your email for the confirmation link.`)
         setMessage(prev => prev + `\n⚠️ You must click the confirmation link before you can log in.`)
-        
-        // Create user profile (will be created when user confirms email)
-        if (data.user) {
-          const { error: profileError } = await supabase
-            .from('user_profiles')
-            .insert({
-              id: data.user.id,
-              email: data.user.email,
-              full_name: 'Test User',
-            })
-
-          if (profileError) {
-            setMessage(prev => prev + `\n⚠️ Profile will be created after email confirmation`)
-          } else {
-            setMessage(prev => prev + `\n✅ User profile prepared`)
-          }
-        }
+        setMessage(prev => prev + `\n🔗 The email link will redirect to the proper callback URL.`)
       }
     } catch (error) {
+      console.error('🔧 Dev-tools: Signup exception:', error)
       setMessage(`Error: ${error}`)
     }
 
@@ -61,51 +71,25 @@ export default function DevToolsPage() {
     setMessage('')
 
     try {
-      // Create user with auto-confirmation for development
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: 'Test User'
-          },
-          emailRedirectTo: undefined // This helps avoid confirmation in some cases
-        }
-      })
+      console.log('🔧 Dev-tools: Creating user with AuthContext signUp (dev mode)')
+      // Use AuthContext signUp which sets proper redirect URL
+      const { error } = await authSignUp(email, password, 'Test User')
 
       if (error) {
+        console.error('🔧 Dev-tools: Dev mode signup error:', error)
         setMessage(`Error: ${error.message}`)
         setLoading(false)
         return
       }
 
-      if (data.user) {
-        setMessage(`✅ Test user created! Email: ${email}`)
-        
-        // Create user profile immediately
-        const { error: profileError } = await supabase
-          .from('user_profiles')
-          .insert({
-            id: data.user.id,
-            email: data.user.email,
-            full_name: 'Test User',
-          })
-
-        if (profileError) {
-          setMessage(prev => prev + `\n⚠️ Profile creation error: ${profileError.message}`)
-        } else {
-          setMessage(prev => prev + `\n✅ User profile created`)
-        }
-
-        // If user needs confirmation, provide instructions
-        if (!data.user.email_confirmed_at) {
-          setMessage(prev => prev + `\n📧 Email confirmation still required - check your email`)
-          setMessage(prev => prev + `\n💡 Or try using a temporary email service like 10minutemail.com`)
-        } else {
-          setMessage(prev => prev + `\n🎉 User is ready to login immediately!`)
-        }
-      }
+      console.log('🔧 Dev-tools: Dev mode signup successful')
+      setMessage(`✅ Test user created! Email: ${email}`)
+      setMessage(prev => prev + `\n📧 Email confirmation required - check your email`)
+      setMessage(prev => prev + `\n🔗 The email link will redirect to the proper callback URL.`)
+      setMessage(prev => prev + `\n💡 Or try using a temporary email service like 10minutemail.com`)
+      
     } catch (error) {
+      console.error('🔧 Dev-tools: Dev mode signup exception:', error)
       setMessage(`Error: ${error}`)
     }
 
@@ -113,33 +97,49 @@ export default function DevToolsPage() {
   }
 
   const testDirectLogin = async () => {
+    console.log('🔐🔐🔐 LOGIN FUNCTION CALLED - Button clicked!')
     setLoading(true)
-    setMessage('')
+    setMessage('Starting login...')
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      console.log('🔐 Starting login attempt for:', email)
+      
+      // Use AuthContext signIn method for consistency
+      const { error } = await authSignIn(email, password)
+
+      console.log('🔐 Login response error:', error)
 
       if (error) {
+        console.error('🔐 Login error:', error)
         setMessage(`Login Error: ${error.message}`)
       } else {
-        setMessage(`✅ Login successful! User: ${data.user?.email}`)
+        console.log('🔐 Login successful via AuthContext')
+        // The auth state change listener will handle updating the UI
+        setMessage(`✅ Login successful! Check the auth status above.`)
       }
     } catch (error) {
+      console.error('🔐 Login exception:', error)
       setMessage(`Error: ${error}`)
+    } finally {
+      console.log('🔐 Setting loading to false')
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      setMessage(`Sign out error: ${error.message}`)
-    } else {
-      setMessage('✅ Signed out successfully')
+    try {
+      console.log('🚪 Starting sign out')
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        console.error('🚪 Sign out error:', error)
+        setMessage(`Sign out error: ${error.message}`)
+      } else {
+        console.log('🚪 Sign out successful')
+        setMessage('✅ Signed out successfully')
+      }
+    } catch (error) {
+      console.error('🚪 Sign out exception:', error)
+      setMessage(`Sign out exception: ${error}`)
     }
   }
 
@@ -151,6 +151,21 @@ export default function DevToolsPage() {
           <p className="text-gray-600 mb-8">Testing utilities for MrBrooks Auth Service</p>
 
           <div className="space-y-6">
+            {/* Current Auth Status */}
+            <div className="p-4 bg-gray-50 border rounded-md">
+              <h3 className="text-sm font-medium text-gray-800 mb-2">Current Auth Status</h3>
+              <p className="text-sm text-gray-600">
+                {currentUser ? (
+                  <>✅ Logged in as: {currentUser.email}</>
+                ) : (
+                  <>❌ Not logged in</>
+                )}
+              </p>
+              {loading && (
+                <p className="text-sm text-blue-600 mt-1">🔄 Operation in progress...</p>
+              )}
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Test Email
@@ -198,7 +213,7 @@ export default function DevToolsPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <button
                 onClick={testDirectLogin}
                 disabled={loading || !email || !password}
@@ -212,6 +227,17 @@ export default function DevToolsPage() {
                 className="py-2 px-4 bg-red-600 text-white rounded-md hover:bg-red-700"
               >
                 Sign Out
+              </button>
+
+              <button
+                onClick={() => {
+                  setLoading(false)
+                  setMessage('Reset loading state')
+                  console.log('🔄 Manually reset loading state')
+                }}
+                className="py-2 px-4 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+              >
+                Reset State
               </button>
             </div>
 

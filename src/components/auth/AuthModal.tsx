@@ -8,9 +8,10 @@ interface AuthModalProps {
   isOpen: boolean
   onClose: () => void
   initialMode?: 'login' | 'signup'
+  sessionToken?: string
 }
 
-export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: AuthModalProps) {
+export default function AuthModal({ isOpen, onClose, initialMode = 'login', sessionToken }: AuthModalProps) {
   const [mode, setMode] = useState<'login' | 'signup'>(initialMode)
 
   if (!isOpen) return null
@@ -36,9 +37,9 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
         </button>
         
         {mode === 'login' ? (
-          <LoginForm onToggleMode={toggleMode} onSuccess={handleSuccess} />
+          <LoginForm onToggleMode={toggleMode} onSuccess={handleSuccess} sessionToken={sessionToken} />
         ) : (
-          <SignupForm onToggleMode={toggleMode} onSuccess={handleSuccess} />
+          <SignupForm onToggleMode={toggleMode} onSuccess={handleSuccess} sessionToken={sessionToken} />
         )}
       </div>
     </div>

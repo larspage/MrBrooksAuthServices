@@ -6,9 +6,10 @@ import { useAuth } from '@/contexts/AuthContext'
 interface LoginFormProps {
   onToggleMode?: () => void
   onSuccess?: () => void
+  sessionToken?: string
 }
 
-export default function LoginForm({ onToggleMode, onSuccess }: LoginFormProps) {
+export default function LoginForm({ onToggleMode, onSuccess, sessionToken }: LoginFormProps) {
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

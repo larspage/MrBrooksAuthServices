@@ -140,7 +140,8 @@ describe('AuthContext', () => {
         options: {
           data: {
             full_name: 'Test User'
-          }
+          },
+          emailRedirectTo: 'http://localhost/auth/callback'
         }
       })
 
@@ -379,7 +380,7 @@ describe('AuthContext', () => {
         expect(screen.getByTestId('loading')).toHaveTextContent('not-loading')
       })
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error getting session:', expect.any(Error))
+      expect(consoleErrorSpy).toHaveBeenCalledWith('🔐 Error getting session:', expect.any(Error))
       
       consoleErrorSpy.mockRestore()
     })

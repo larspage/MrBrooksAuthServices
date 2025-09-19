@@ -19,7 +19,7 @@ interface AuthContextType {
   profile: UserProfile | null
   session: Session | null
   loading: boolean
-  signUp: (email: string, password: string, fullName?: string) => Promise<{ error: any }>
+  signUp: (email: string, password: string, fullName?: string, sessionToken?: string) => Promise<{ error: any }>
   signIn: (email: string, password: string) => Promise<{ error: any }>
   signOut: () => Promise<{ error: any }>
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ error: any }>
@@ -37,25 +37,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Get initial session
     const getInitialSession = async () => {
       try {
-        console.log('Getting initial session...')
+        console.log('🔐 Getting initial session...')
         const { data: { session }, error } = await supabase.auth.getSession()
-        
+
+        console.log('🔐 Session retrieval result:', {
+          hasSession: !!session,
+          hasUser: !!session?.user,
+          userEmail: session?.user?.email,
+          error: error ? {
+            message: error.message,
+            status: error.status,
+            name: error.name
+          } : null
+        })
+
         if (error) {
-          console.error('Error getting session:', error)
+          console.error('🔐 Error getting session:', error)
         } else {
-          console.log('Session retrieved:', session ? 'User logged in' : 'No user')
+          console.log('🔐 Session retrieved:', session ? `User logged in: ${session.user?.email}` : 'No user')
         }
-        
+
         setSession(session)
         setUser(session?.user ?? null)
-        
+
         if (session?.user) {
+          console.log('🔐 Fetching user profile for:', session.user.id)
           await fetchUserProfile(session.user.id)
+        } else {
+          console.log('🔐 No user in session, skipping profile fetch')
         }
-        
+
+        console.log('🔐 Setting loading to false')
         setLoading(false)
       } catch (error) {
-        console.error('Error in getInitialSession:', error)
+        console.error('🔐 Exception in getInitialSession:', error)
         setLoading(false)
       }
     }
@@ -65,16 +80,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session ? 'User logged in' : 'No user')
+        console.log('🔐 Auth state changed:', event, {
+          hasSession: !!session,
+          hasUser: !!session?.user,
+          userEmail: session?.user?.email,
+          userId: session?.user?.id
+        })
+
         setSession(session)
         setUser(session?.user ?? null)
-        
+
         if (session?.user) {
+          console.log('🔐 Fetching profile for user:', session.user.id)
           await fetchUserProfile(session.user.id)
         } else {
+          console.log('🔐 No user, clearing profile')
           setProfile(null)
         }
-        
+
+        console.log('🔐 Setting loading to false after auth state change')
         setLoading(false)
       }
     )
@@ -101,19 +125,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const signUp = async (email: string, password: string, fullName?: string) => {
+  const signUp = async (email: string, password: string, fullName?: string, sessionToken?: string) => {
     try {
+      // Build the redirect URL, including session token if provided
+      let redirectUrl = `${window.location.origin}/auth/callback`
+      console.log('🔗 Initial redirectUrl:', redirectUrl)
+      console.log('🔗 redirectUrl length:', redirectUrl.length)
+      
+      if (sessionToken) {
+        console.log('🎫 sessionToken provided:', sessionToken)
+        console.log('🎫 sessionToken length:', sessionToken.length)
+        redirectUrl += `?session=${sessionToken}`
+        console.log('🔗 Final redirectUrl with session:', redirectUrl)
+        console.log('🔗 Final redirectUrl length:', redirectUrl.length)
+        
+        // Check for potential URL length issues
+        if (redirectUrl.length > 2048) {
+          console.warn('⚠️ WARNING: redirectUrl exceeds 2048 characters, may cause issues with some browsers/email clients')
+        }
+        if (redirectUrl.length > 8192) {
+          console.error('❌ ERROR: redirectUrl exceeds 8192 characters, likely to cause failures')
+        }
+      } else {
+        console.log('🎫 No sessionToken provided')
+      }
+
+      console.log('📧 About to send signup request with emailRedirectTo:', redirectUrl)
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             full_name: fullName,
-          }
+          },
+          emailRedirectTo: redirectUrl
         }
       })
 
-      if (error) return { error }
+      console.log('📧 Signup response:', {
+        hasData: !!data,
+        hasUser: !!data?.user,
+        userConfirmed: data?.user?.email_confirmed_at,
+        userId: data?.user?.id,
+        error: error ? {
+          message: error.message,
+          status: error.status
+        } : null
+      })
+
+      if (error) {
+        console.error('📧 Signup error details:', error)
+        return { error }
+      }
 
       // Create user profile if signup was successful
       if (data.user && !error) {

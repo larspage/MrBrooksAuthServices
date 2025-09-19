@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Client Application</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background-color: #0056b3;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 MrBrooks Auth Service Test Client</h1>
+        <p>This is a test client application that demonstrates the multi-tenant authentication flow.</p>
+        
+        <div id="status"></div>
+        
+        <div id="auth-section">
+            <h2>Step 1: Initiate Authentication</h2>
+            <p>Click the button below to start the authentication process:</p>
+            <button class="button" onclick="startAuth()">🔐 Login with MrBrooks Auth</button>
+            
+            <h3>Configuration</h3>
+            <label>Application ID: <input type="text" id="appId" value="550e8400-e29b-41d4-a716-446655440000" style="margin-left: 10px; padding: 5px; width: 300px;"></label><br><br>
+            <label>Redirect URL: <input type="text" id="redirectUrl" style="margin-left: 10px; padding: 5px; width: 300px;"></label><br><br>
+            <label>User Email (optional): <input type="email" id="userEmail" placeholder="user@example.com" style="margin-left: 10px; padding: 5px; width: 200px;"></label><br><br>
+            <label>Custom State: <input type="text" id="customState" placeholder='{"returnTo": "/dashboard"}' style="margin-left: 10px; padding: 5px; width: 250px;"></label>
+        </div>
+        
+        <div id="result-section" style="display: none;">
+            <h2>✅ Authentication Result</h2>
+            <div id="result-content"></div>
+            <button class="button" onclick="resetTest()">🔄 Test Again</button>
+        </div>
+        
+        <div id="instructions">
+            <h2>📋 Instructions</h2>
+            <ol>
+                <li><strong>Setup:</strong> Make sure the MrBrooks Auth Service is running on <code>http://localhost:6010</code></li>
+                <li><strong>Database:</strong> You need to register a test application in the database first</li>
+                <li><strong>Test:</strong> Click "Login with MrBrooks Auth" to start the flow</li>
+                <li><strong>Authenticate:</strong> You'll be redirected to the auth service to sign in/up</li>
+                <li><strong>Return:</strong> After authentication, you'll be redirected back here with the result</li>
+            </ol>
+            
+            <h3>🗄️ Database Setup</h3>
+            <p>Run this SQL to register the test application:</p>
+            <pre><code>INSERT INTO applications (id, name, slug, allowed_redirect_urls, status) VALUES (
+    'test-app-id',
+    'Test Client Application',
+    'test-client',
+    ARRAY['file://*', 'http://localhost:*', 'https://localhost:*'],
+    'active'
+);</code></pre>
+        </div>
+    </div>
+
+    <script>
+        // Set default redirect URL to current page
+        document.getElementById('redirectUrl').value = window.location.href;
+        
+        // Check if we're returning from authentication
+        window.addEventListener('load', function() {
+            checkAuthResult();
+        });
+        
+        function checkAuthResult() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const authSuccess = urlParams.get('auth_success');
+            const userId = urlParams.get('user_id');
+            const state = urlParams.get('state');
+            const error = urlParams.get('error');
+            
+            if (authSuccess === 'true') {
+                showAuthSuccess(userId, state);
+            } else if (authSuccess === 'false' || error) {
+                showAuthError(error || 'Authentication failed');
+            }
+        }
+        
+        async function startAuth() {
+            const appId = document.getElementById('appId').value;
+            const redirectUrl = document.getElementById('redirectUrl').value;
+            const userEmail = document.getElementById('userEmail').value;
+            const customStateStr = document.getElementById('customState').value;
+            
+            let customState = null;
+            if (customStateStr) {
+                try {
+                    customState = JSON.parse(customStateStr);
+                } catch (e) {
+                    showError('Invalid JSON in custom state field');
+                    return;
+                }
+            }
+            
+            showInfo('🚀 Initiating authentication...');
+            
+            try {
+                const response = await fetch('http://localhost:6010/api/auth/initiate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        applicationId: appId,
+                        redirectUrl: redirectUrl,
+                        userEmail: userEmail || undefined,
+                        state: customState,
+                        expiresInMinutes: 30
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showInfo(`✅ Session created! Redirecting to auth service...<br>Session Token: <code>${result.sessionToken}</code>`);
+                    
+                    // Redirect to auth service after a short delay
+                    setTimeout(() => {
+                        window.location.href = result.authUrl;
+                    }, 2000);
+                } else {
+                    showError(`❌ Failed to initiate authentication: ${result.error}`);
+                }
+            } catch (error) {
+                showError(`❌ Network error: ${error.message}`);
+            }
+        }
+        
+        function showAuthSuccess(userId, state) {
+            const resultContent = document.getElementById('result-content');
+            let stateDisplay = '';
+            
+            if (state) {
+                try {
+                    const stateObj = JSON.parse(state);
+                    stateDisplay = `<p><strong>Custom State:</strong></p><pre>${JSON.stringify(stateObj, null, 2)}</pre>`;
+                } catch (e) {
+                    stateDisplay = `<p><strong>Custom State:</strong> ${state}</p>`;
+                }
+            }
+            
+            resultContent.innerHTML = `
+                <div class="success">
+                    <h3>🎉 Authentication Successful!</h3>
+                    <p><strong>User ID:</strong> <code>${userId}</code></p>
+                    ${stateDisplay}
+                    <p><strong>Current URL:</strong> <code>${window.location.href}</code></p>
+                </div>
+            `;
+            
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('result-section').style.display = 'block';
+            
+            // Clean up URL
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+        
+        function showAuthError(error) {
+            showError(`❌ Authentication failed: ${error}`);
+        }
+        
+        function showInfo(message) {
+            document.getElementById('status').innerHTML = `<div class="info">${message}</div>`;
+        }
+        
+        function showError(message) {
+            document.getElementById('status').innerHTML = `<div class="error">${message}</div>`;
+        }
+        
+        function resetTest() {
+            document.getElementById('auth-section').style.display = 'block';
+            document.getElementById('result-section').style.display = 'none';
+            document.getElementById('status').innerHTML = '';
+            
+            // Clean up URL
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+    </script>
+</body>
+</html>
